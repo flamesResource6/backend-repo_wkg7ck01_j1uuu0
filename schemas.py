@@ -12,7 +12,14 @@ Model name is converted to lowercase for the collection name:
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
+
+class IngredientItem(BaseModel):
+    """An ingredient line used to make a product"""
+    name: str = Field(..., description="Ingredient name, e.g., Espresso, Milk")
+    unit: Optional[str] = Field(None, description="Unit label, e.g., g, ml, piece")
+    unit_cost: float = Field(0.0, ge=0, description="Cost per unit of the ingredient")
+    quantity: float = Field(0.0, ge=0, description="Quantity of unit used for one product")
 
 class Product(BaseModel):
     """
@@ -20,9 +27,10 @@ class Product(BaseModel):
     Collection name: "product"
     """
     name: str = Field(..., description="Product name, e.g., Latte 12oz")
-    cost: float = Field(0.0, ge=0, description="Total cost to make one item (ingredients + cup)")
     price: float = Field(0.0, ge=0, description="Sell price before tax")
     category: Optional[str] = Field(None, description="Category, e.g., Coffee, Tea, Pastry")
+    ingredients: List[IngredientItem] = Field(default_factory=list, description="Breakdown of ingredients used")
+    cost: float = Field(0.0, ge=0, description="Computed total cost to make one item (sum of ingredients)")
 
 class Settings(BaseModel):
     """
