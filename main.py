@@ -1,11 +1,18 @@
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
-from database import db, create_document, get_documents
+try:
+    from database import db, create_document, get_documents
+except Exception:
+    # If database import triggers a connection error, provide safe fallbacks
+    db = None
+    def create_document(*args, **kwargs):
+        raise Exception("Database not available")
+    def get_documents(*args, **kwargs):
+        raise Exception("Database not available")
 from bson import ObjectId
-from schemas import Product as ProductSchema, Settings as SettingsSchema, IngredientItem as IngredientSchema
 
 app = FastAPI()
 
@@ -35,14 +42,16 @@ def serialize_doc(doc):
 class IngredientIn(BaseModel):
     name: str
     unit: Optional[str] = None
-    unit_cost: float
+    unit_cost: Optional[float] = None
+    pack_size: Optional[float] = None
+    pack_cost: Optional[float] = None
     quantity: float
 
 class ProductIn(BaseModel):
     name: str
     price: float
     category: Optional[str] = None
-    ingredients: List[IngredientIn] = []
+    ingredients: List[IngredientIn] = Field(default_factory=list)
 
 class ProductOut(BaseModel):
     id: str
@@ -61,8 +70,17 @@ class SettingsOut(SettingsIn):
     id: Optional[str] = None
 
 
+def effective_unit_cost(ing: IngredientIn) -> float:
+    # Prefer direct unit_cost; otherwise compute from package
+    if ing.unit_cost is not None:
+        return float(ing.unit_cost)
+    if ing.pack_size and ing.pack_cost is not None and ing.pack_size > 0:
+        return float(ing.pack_cost) / float(ing.pack_size)
+    return 0.0
+
+
 def compute_cost(ingredients: List[IngredientIn]) -> float:
-    return float(sum((i.unit_cost or 0) * (i.quantity or 0) for i in ingredients))
+    return float(sum(effective_unit_cost(i) * (i.quantity or 0) for i in ingredients))
 
 
 @app.get("/")
@@ -102,14 +120,14 @@ def update_settings(payload: SettingsIn):
 @app.get("/api/products", response_model=List[ProductOut])
 def list_products():
     if db is None:
-        # stateless default sample list
+        # stateless default sample list demonstrating package-based costing too
         sample = [
             {
                 "name": "Espresso",
                 "category": "Coffee",
                 "price": 3.0,
                 "ingredients": [
-                    {"name": "Coffee Beans", "unit": "g", "unit_cost": 0.02, "quantity": 18},
+                    {"name": "Coffee Beans", "unit": "g", "pack_size": 1000, "pack_cost": 38, "quantity": 18},
                     {"name": "Cup", "unit": "pc", "unit_cost": 0.12, "quantity": 1},
                 ],
             },
@@ -118,8 +136,8 @@ def list_products():
                 "category": "Coffee",
                 "price": 4.5,
                 "ingredients": [
-                    {"name": "Coffee Beans", "unit": "g", "unit_cost": 0.02, "quantity": 18},
-                    {"name": "Milk", "unit": "ml", "unit_cost": 0.001, "quantity": 220},
+                    {"name": "Coffee Beans", "unit": "g", "pack_size": 1000, "pack_cost": 38, "quantity": 18},
+                    {"name": "Milk", "unit": "ml", "pack_size": 1000, "pack_cost": 1.0, "quantity": 220},
                     {"name": "Cup", "unit": "pc", "unit_cost": 0.12, "quantity": 1},
                 ],
             },

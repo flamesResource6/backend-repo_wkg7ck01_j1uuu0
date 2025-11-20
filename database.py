@@ -22,10 +22,19 @@ database_url = os.getenv("DATABASE_URL")
 database_name = os.getenv("DATABASE_NAME")
 
 if database_url and database_name:
-    _client = MongoClient(database_url)
+    # Configure short timeouts to avoid blocking startup if Mongo is unreachable
+    _client = MongoClient(
+        database_url,
+        serverSelectionTimeoutMS=500,
+        connectTimeoutMS=500,
+        socketTimeoutMS=500,
+        retryWrites=True,
+    )
+    # Don't call server_info() here to keep startup non-blocking
     db = _client[database_name]
 
 # Helper functions for common database operations
+
 def create_document(collection_name: str, data: Union[BaseModel, dict]):
     """Insert a single document with timestamp"""
     if db is None:
